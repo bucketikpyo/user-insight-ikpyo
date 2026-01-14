@@ -38,19 +38,65 @@ def parse_folder_name(folder_name):
     return None, None, folder_name
 
 def get_project_description(folder_path):
-    """프로젝트 폴더의 README.md에서 설명을 추출합니다."""
+    """프로젝트 폴더의 README.md에서 상세 설명을 추출합니다."""
     readme_path = folder_path / 'README.md'
     if readme_path.exists():
         try:
             with open(readme_path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-                # 첫 번째 헤더 다음 줄을 설명으로 사용
+                content = f.read()
+                
+                # 프로젝트 정보 추출
+                info = {
+                    'subtitle': None,
+                    'summary': None,
+                    'findings': [],
+                    'impact': None
+                }
+                
+                lines = content.split('\n')
+                
+                # 부제목 찾기 (> "..." 형식)
+                for line in lines:
+                    if line.startswith('> **"') and line.endswith('"**'):
+                        info['subtitle'] = line.replace('> **"', '').replace('"**', '')
+                        break
+                
+                # 리서치 목적/개요 찾기
+                in_purpose = False
                 for i, line in enumerate(lines):
-                    if line.startswith('#') and i + 1 < len(lines):
-                        desc = lines[i + 1].strip()
-                        if desc:
-                            return desc
-        except:
+                    if '리서치 목적' in line or '🎯' in line:
+                        in_purpose = True
+                        continue
+                    if in_purpose and line.strip() and not line.startswith('#') and not line.startswith('-'):
+                        info['summary'] = line.strip()
+                        break
+                
+                # 핵심 발견/주요 발견 찾기
+                in_findings = False
+                for i, line in enumerate(lines):
+                    if '주요 발견' in line or '핵심 발견' in line:
+                        in_findings = True
+                        continue
+                    if in_findings:
+                        if line.startswith('#'):
+                            break
+                        if line.strip().startswith(('1.', '2.', '3.', '4.', '-')):
+                            finding = line.strip().lstrip('1234567890.- ')
+                            if finding:
+                                info['findings'].append(finding)
+                
+                # 임팩트/시사점 찾기
+                for i, line in enumerate(lines):
+                    if '임팩트' in line or '시사점' in line or '실무 임팩트' in line:
+                        if i + 1 < len(lines):
+                            next_line = lines[i + 1].strip()
+                            if next_line and not next_line.startswith('#'):
+                                info['impact'] = next_line.lstrip('- ')
+                        break
+                
+                return info
+        except Exception as e:
+            print(f"  ⚠️  README 파싱 오류 ({folder_path.name}): {e}")
             pass
     return None
 
@@ -86,26 +132,50 @@ def generate_readme():
     
     # 연도별로 정렬하여 출력
     for year in sorted(projects_by_year.keys(), reverse=True):
-        readme_content += f"### {year}년\n"
+        readme_content += f"### {year}년\n\n"
         
         # 월별로 정렬
         projects = sorted(projects_by_year[year], key=lambda x: x['month'])
         
-        for project in projects:
-            # 기본 정보
-            readme_content += f"- **{project['name']}"
+        for idx, project in enumerate(projects):
+            desc = project['description']
             
-            # 설명이 있으면 추가
-            if project['description']:
-                readme_content += f"**: {project['description']}\n"
-            else:
-                readme_content += "**\n"
+            # 프로젝트 제목 (이모지 포함)
+            emoji = "🔍" if "숏" in project['name'] or "분석" in project['name'] else "🛏️" if "침대" in project['name'] or "PB" in project['name'] else "📊"
+            readme_content += f"#### {emoji} {project['name']}\n"
             
-            # 상세 정보
-            readme_content += f"  - 기간: {year}.{project['month']:02d}\n"
-            readme_content += f"  - [📄 리포트 보기](./{project['folder_name']}/)\n"
-        
-        readme_content += "\n"
+            # 부제목 (있으면)
+            if desc and desc.get('subtitle'):
+                readme_content += f'**"{desc["subtitle"]}"**\n\n'
+            
+            # 요약 (있으면)
+            if desc and desc.get('summary'):
+                readme_content += f"{desc['summary']}\n\n"
+            
+            # 핵심 발견 (있으면)
+            if desc and desc.get('findings'):
+                readme_content += "**핵심 발견**:\n"
+                for finding in desc['findings'][:4]:  # 최대 4개만
+                    readme_content += f"- {finding}\n"
+                readme_content += "\n"
+            
+            # 임팩트 (있으면)
+            if desc and desc.get('impact'):
+                readme_content += f"**임팩트**: {desc['impact']}\n\n"
+            
+            # 메타 정보
+            readme_content += f"- 기간: {year}.{project['month']:02d}\n"
+            
+            # 추가 정보는 각 프로젝트의 README에서 가져올 수 있음
+            # 여기서는 기본 정보만 표시
+            
+            readme_content += f"- [📄 리포트 보기](./{project['folder_name']}/)\n"
+            
+            # 프로젝트 사이 구분선 (마지막 프로젝트 제외)
+            if idx < len(projects) - 1:
+                readme_content += "\n---\n"
+            
+            readme_content += "\n"
     
     # 하단 정보
     total_projects = sum(len(projects) for projects in projects_by_year.values())
